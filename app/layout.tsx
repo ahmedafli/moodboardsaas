@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
-import Navbar from "@/components/Navbar";
+import LayoutShell from "@/components/LayoutShell";
 
 export const metadata: Metadata = {
   title: "Collecto",
@@ -26,14 +25,9 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <div className="min-h-screen main-bg text-slate-800 flex overflow-hidden p-4 gap-4">
-          <Sidebar />
-          <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-            <Navbar />
-            {children}
-          </div>
-        </div>
+        <LayoutShell>{children}</LayoutShell>
       </body>
     </html>
   );
 }
+

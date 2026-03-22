@@ -21,7 +21,7 @@ export default function Sidebar() {
       <div className="flex flex-col gap-5">
         {navLinks.map((link) => {
           // Check if active (also matching "/" if it's the home link to be safe)
-          const isActive = pathname === link.href || (pathname === '/' && link.href === '/home');
+          const isActive = pathname === link.href || pathname.startsWith(link.href + '/') || (pathname === '/' && link.href === '/home');
 
           return (
             <Link

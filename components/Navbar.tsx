@@ -1,12 +1,21 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Icon } from "@iconify/react";
 
 export default function Navbar() {
+  const router = useRouter();
+
+  function handleLogout() {
+    document.cookie = "session=; path=/; max-age=0";
+    router.push("/login");
+  }
+
   return (
     <header className="h-16 glass-bg rounded-3xl flex items-center px-8 justify-end gap-6 shrink-0 relative z-40">
       <button
         id="header-logout-btn"
+        onClick={handleLogout}
         className="flex items-center gap-2 text-slate-500 hover:text-red-500 transition-colors text-sm font-bold cursor-pointer bg-transparent border-none p-0"
       >
         <Icon icon="lucide:log-out" className="text-lg" />
@@ -27,3 +36,4 @@ export default function Navbar() {
     </header>
   );
 }
+

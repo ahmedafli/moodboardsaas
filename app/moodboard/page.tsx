@@ -173,11 +173,20 @@ function ProductCard({ product, onAdd }: { product: Product; onAdd: (image: stri
   );
 }
 
-export default function MoodboardPage() {
+export interface MoodboardPageProps {
+  initialCanvasItems?: CanvasItem[];
+  moodboardName?: string;
+}
+
+export default function MoodboardPage({ initialCanvasItems, moodboardName }: MoodboardPageProps = {}) {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
-  const [canvasItems, setCanvasItems] = useState<CanvasItem[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [canvasItems, setCanvasItems] = useState<CanvasItem[]>(initialCanvasItems || []);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -192,7 +201,7 @@ export default function MoodboardPage() {
   const exportToPDF = async () => {
     try {
       setIsExporting(true);
-      
+
       // Dynamically import to avoid SSR issues
       const { toPng } = await import('html-to-image');
       const jsPDF = (await import('jspdf')).default;
@@ -203,11 +212,11 @@ export default function MoodboardPage() {
 
       const moodboardEl = document.getElementById('moodboard-capture');
       if (!moodboardEl) return;
-      
+
       // Page 1: Moodboard (Landscape)
       // Using pixelRatio for high quality
       const imgData1 = await toPng(moodboardEl, {
-        cacheBust: true,
+        cacheBust: false,
         pixelRatio: 2,
         backgroundColor: '#ffffff',
         skipFonts: true, // Prevents cross-origin cssRules crashing when parsing external/dev stylesheets
@@ -222,20 +231,20 @@ export default function MoodboardPage() {
         unit: 'mm',
         format: 'a4'
       });
-      
+
       const pdfWidthL = pdf.internal.pageSize.getWidth();
       const pdfHeightL = pdf.internal.pageSize.getHeight();
-      
+
       const imgProps1 = pdf.getImageProperties(imgData1);
       const ratio1 = imgProps1.width / imgProps1.height;
       let finalW1 = pdfWidthL;
       let finalH1 = pdfWidthL / ratio1;
-      
+
       if (finalH1 > pdfHeightL) {
         finalH1 = pdfHeightL;
         finalW1 = pdfHeightL * ratio1;
       }
-      
+
       const x1 = (pdfWidthL - finalW1) / 2;
       const y1 = (pdfHeightL - finalH1) / 2;
       pdf.addImage(imgData1, 'PNG', x1, y1, finalW1, finalH1);
@@ -244,12 +253,12 @@ export default function MoodboardPage() {
       const tableEl = document.getElementById('table-capture');
       if (tableEl && canvasItems.length > 0) {
         pdf.addPage('a4', 'p'); // Portrait
-        
+
         // Temporarily remove tailwind classes that might cause issues with html-to-image table rendering
         // html-to-image generally handles oklch correctly because it uses foreignObject.
         // html-to-image generally handles oklch correctly because it uses foreignObject.
         const imgData2 = await toPng(tableEl, {
-          cacheBust: true,
+          cacheBust: false,
           pixelRatio: 2,
           backgroundColor: '#ffffff',
           skipFonts: true, // Prevents cross-origin cssRules crashing when parsing external/dev stylesheets
@@ -265,16 +274,16 @@ export default function MoodboardPage() {
             return true;
           }
         });
-        
+
         const pdfWidthP = pdf.internal.pageSize.getWidth();
-        
+
         const imgProps2 = pdf.getImageProperties(imgData2);
         const ratio2 = imgProps2.width / imgProps2.height;
-        
+
         const margin = 15;
         const finalW2 = pdfWidthP - (margin * 2);
         const finalH2 = finalW2 / ratio2;
-        
+
         pdf.addImage(imgData2, 'PNG', margin, margin, finalW2, finalH2);
       }
 
@@ -285,6 +294,40 @@ export default function MoodboardPage() {
       alert('Failed to generate PDF. Check console for details.');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const openSaveModal = () => {
+    if (canvasItems.length === 0) return;
+    setSaveName(moodboardName || '');
+    setShowSaveModal(true);
+  };
+
+  const saveMoodboard = async () => {
+    if (isSaving || !saveName.trim()) return;
+    try {
+      setIsSaving(true);
+      setSaveSuccess(false);
+      const payload = {
+        user_id: 1,
+        name: saveName.trim(),
+        canvas_items: canvasItems,
+      };
+      const webhookUrl = process.env.NEXT_PUBLIC_SAVE_MOODBOARD_WEBHOOK as string;
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error('Failed to save moodboard');
+      setSaveSuccess(true);
+      setShowSaveModal(false);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch (error) {
+      console.error('Error saving moodboard:', error);
+      alert('Failed to save moodboard. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -301,7 +344,7 @@ export default function MoodboardPage() {
       y: 100 + Math.random() * 100,
       width: 250,
       height: 250,
-      rotation: (Math.random() - 0.5) * 10,
+      rotation: 0,
       zIndex: maxZ + 1,
     };
     setCanvasItems((prev) => [...prev, newItem]);
@@ -442,18 +485,37 @@ export default function MoodboardPage() {
     <main className="flex-1 min-h-[120vh] glass-bg rounded-[2.5rem] flex flex-col p-6 md:p-10 lg:p-12 overflow-y-auto relative z-0">
       <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
         {canvasItems.length > 0 && (
-          <button
-            onClick={exportToPDF}
-            disabled={isExporting}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isExporting ? (
-              <Icon icon="lucide:loader-2" className="animate-spin text-lg" />
-            ) : (
-              <Icon icon="lucide:download" className="text-lg" />
-            )}
-            {isExporting ? 'Exporting...' : 'Export PDF'}
-          </button>
+          <>
+            <button
+              onClick={openSaveModal}
+              disabled={isSaving}
+              className={`px-5 py-2.5 ${saveSuccess
+                ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'
+                : 'bg-violet-600 hover:bg-violet-700 shadow-violet-500/30'
+                } text-white rounded-xl font-bold shadow-lg flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isSaving ? (
+                <Icon icon="lucide:loader-2" className="animate-spin text-lg" />
+              ) : saveSuccess ? (
+                <Icon icon="lucide:check" className="text-lg" />
+              ) : (
+                <Icon icon="lucide:save" className="text-lg" />
+              )}
+              {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
+            </button>
+            <button
+              onClick={exportToPDF}
+              disabled={isExporting}
+              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isExporting ? (
+                <Icon icon="lucide:loader-2" className="animate-spin text-lg" />
+              ) : (
+                <Icon icon="lucide:download" className="text-lg" />
+              )}
+              {isExporting ? 'Exporting...' : 'Export PDF'}
+            </button>
+          </>
         )}
         <button
           id="close-view-btn"
@@ -482,6 +544,13 @@ export default function MoodboardPage() {
               dragElastic={0}
               dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
               onDragStart={() => bringToFront(item.id)}
+              onDragEnd={(_, info) => {
+                setCanvasItems(prev => prev.map(i =>
+                  i.id === item.id
+                    ? { ...i, x: i.x + info.offset.x, y: i.y + info.offset.y }
+                    : i
+                ));
+              }}
               onClick={(e: React.MouseEvent) => {
                 e.stopPropagation();
                 bringToFront(item.id);
@@ -631,7 +700,7 @@ export default function MoodboardPage() {
                 <tbody className="divide-y divide-gray-100">
                   {Object.values(
                     canvasItems.reduce((acc, item) => {
-                      const key = item.itemCode;
+                      const key = item.itemCode + '-' + item.image;
                       if (!acc[key]) {
                         acc[key] = { ...item, count: 1, ids: [item.id] };
                       } else {
@@ -641,11 +710,11 @@ export default function MoodboardPage() {
                       return acc;
                     }, {} as Record<string, CanvasItem & { count: number; ids: string[] }>)
                   ).map((group) => (
-                    <tr key={group.itemCode} className="bg-white/60 hover:bg-indigo-50/40 transition-colors group">
+                    <tr key={group.itemCode + '-' + group.image} className="bg-white/60 hover:bg-indigo-50/40 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 shadow-sm flex-shrink-0">
-                            <img src={getProxiedImageUrl(group.image)} alt={group.productName} className="w-full h-full object-cover" />
+                            <img src={`${group.image.startsWith('data:') ? group.image : getProxiedImageUrl(group.image) + (getProxiedImageUrl(group.image).includes('?') ? '&' : '?') + 't_id=' + group.ids[0]}`} alt={group.productName} className="w-full h-full object-cover" crossOrigin="anonymous" loading="eager" />
                           </div>
                           <div>
                             <p className="text-sm font-semibold text-gray-800 line-clamp-1">{group.productName}</p>
@@ -702,7 +771,7 @@ export default function MoodboardPage() {
                         {(() => {
                           const allTotals = Object.values(
                             canvasItems.reduce((acc, item) => {
-                              const key = item.itemCode;
+                              const key = item.itemCode + '-' + item.image;
                               if (!acc[key]) {
                                 acc[key] = { ...item, count: 1 };
                               } else {
@@ -716,10 +785,10 @@ export default function MoodboardPage() {
                           });
 
                           const grandTotal = allTotals.reduce((sum, val) => sum + val, 0);
-                          
+
                           // Assuming all items use the same currency, grab the first one's currency string
-                          const firstCurrency = canvasItems.length > 0 
-                            ? canvasItems[0].price.replace(/[0-9.,\s]/g, '').trim() 
+                          const firstCurrency = canvasItems.length > 0
+                            ? canvasItems[0].price.replace(/[0-9.,\s]/g, '').trim()
                             : '';
 
                           return `${firstCurrency} ${grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -777,6 +846,64 @@ export default function MoodboardPage() {
           )}
         </div>
       </div>
+      {/* Save Modal */}
+      {showSaveModal && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowSaveModal(false)}
+        >
+          <div
+            className="bg-white/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 p-8 w-full max-w-md mx-4 transform transition-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+                <Icon icon="lucide:save" className="text-xl text-violet-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">Save Moodboard</h3>
+                <p className="text-sm text-gray-500">Give your moodboard a name</p>
+              </div>
+            </div>
+
+            <input
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && saveName.trim()) saveMoodboard(); }}
+              placeholder="e.g. Living Room Inspiration"
+              autoFocus
+              className="w-full px-4 py-3 bg-gray-50/80 border border-gray-200 rounded-xl text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent transition-all text-sm"
+            />
+
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveMoodboard}
+                disabled={isSaving || !saveName.trim()}
+                className="flex-1 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold shadow-lg shadow-violet-500/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                {isSaving ? (
+                  <>
+                    <Icon icon="lucide:loader-2" className="animate-spin text-lg" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Icon icon="lucide:check" className="text-lg" />
+                    Save
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
