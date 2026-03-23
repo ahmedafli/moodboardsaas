@@ -189,13 +189,24 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>(initialCanvasItems || []);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [exportBustKey, setExportBustKey] = useState<number | null>(null);
 
   // Helper to ensure all images are routed through our proxy to bypass CORS during PDF export
   const getProxiedImageUrl = (url: string) => {
     if (!url) return '';
+    
+    let proxied = url;
     // If it's already a proxied URL or a local relative path, return as is
-    if (url.startsWith('/api/proxy-image') || url.startsWith('data:')) return url;
-    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    if (!url.startsWith('/api/proxy-image') && !url.startsWith('data:')) {
+      proxied = `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    }
+    
+    // Append export bust key if we're actively exporting to foil all caches
+    if (exportBustKey && !proxied.startsWith('data:')) {
+      proxied += (proxied.includes('?') ? '&' : '?') + `eb=${exportBustKey}`;
+    }
+    
+    return proxied;
   };
 
   const exportToPDF = async () => {
@@ -207,7 +218,10 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       const jsPDF = (await import('jspdf')).default;
 
       // Deselect any item to hide selection rings and rotation handles
+      // Also set the exportBustKey to force all image URLs to update with a fresh timestamp
       setSelectedItemId(null);
+      setExportBustKey(Date.now());
+      // Wait for React to re-render the images with the new eb= parameter and for rings to hide
       await new Promise(resolve => setTimeout(resolve, 150));
 
       const moodboardEl = document.getElementById('moodboard-capture');
@@ -294,6 +308,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       alert('Failed to generate PDF. Check console for details.');
     } finally {
       setIsExporting(false);
+      setExportBustKey(null);
     }
   };
 

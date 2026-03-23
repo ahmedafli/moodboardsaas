@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 // Helper function to convert Google Drive URLs to a format that returns actual images
 function convertGoogleDriveUrl(url: string): string {
   try {
@@ -60,6 +62,7 @@ export async function GET(request: NextRequest) {
     const convertedUrl = convertGoogleDriveUrl(imageUrl);
 
     const response = await fetch(convertedUrl, {
+      cache: 'no-store',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'image/webp,image/png,image/jpeg,image/*,*/*;q=0.8',
