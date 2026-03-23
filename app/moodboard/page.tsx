@@ -216,7 +216,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       // Page 1: Moodboard (Landscape)
       // Using pixelRatio for high quality
       const imgData1 = await toPng(moodboardEl, {
-        cacheBust: false,
+        cacheBust: true,
         pixelRatio: 2,
         backgroundColor: '#ffffff',
         skipFonts: true, // Prevents cross-origin cssRules crashing when parsing external/dev stylesheets
@@ -258,7 +258,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
         // html-to-image generally handles oklch correctly because it uses foreignObject.
         // html-to-image generally handles oklch correctly because it uses foreignObject.
         const imgData2 = await toPng(tableEl, {
-          cacheBust: false,
+          cacheBust: true,
           pixelRatio: 2,
           backgroundColor: '#ffffff',
           skipFonts: true, // Prevents cross-origin cssRules crashing when parsing external/dev stylesheets
@@ -713,7 +713,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 shadow-sm flex-shrink-0">
-                            <img src={`${group.image.startsWith('data:') ? group.image : getProxiedImageUrl(group.image) + (getProxiedImageUrl(group.image).includes('?') ? '&' : '?') + 't_id=' + group.ids[0]}`} alt={group.productName} className="w-full h-full object-cover" crossOrigin="anonymous" loading="eager" />
+                            <img src={group.image.startsWith('data:') ? group.image : getProxiedImageUrl(group.image)} alt={group.productName} className="w-full h-full object-cover" crossOrigin="anonymous" loading="eager" />
                           </div>
                           <div>
                             <p className="text-sm font-semibold text-gray-800 line-clamp-1">{group.productName}</p>
