@@ -46,4 +46,6 @@ USER nextjs
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+# At startup: write Dokploy's env vars into a .env file, then start the server.
+# This ensures Next.js can read them even if Dokploy only injects them as container env vars.
+CMD sh -c 'printenv | grep -E "^(NEXT_PUBLIC_|WEBHOOK_|N8N_)" > /app/.env 2>/dev/null; node server.js'
