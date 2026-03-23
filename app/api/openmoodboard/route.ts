@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
-    const webhookUrl = process.env.NEXT_PUBLIC_OPEN_MOODBOARD_WEBHOOK;
+    const webhookUrl = process.env.OPEN_MOODBOARD_WEBHOOK;
 
     if (!webhookUrl) {
       return NextResponse.json({ message: "Webhook URL not configured" }, { status: 500 });

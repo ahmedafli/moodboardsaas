@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const webhookUrl = process.env.NEXT_PUBLIC_SAVE_MOODBOARD_WEBHOOK;
+    const webhookUrl = process.env.SAVE_MOODBOARD_WEBHOOK;
 
     if (!webhookUrl) {
       return NextResponse.json({ message: "Webhook URL not configured" }, { status: 500 });
