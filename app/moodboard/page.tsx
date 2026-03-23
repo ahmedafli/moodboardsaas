@@ -214,11 +214,13 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       setIsExporting(true);
 
       // Dynamically import to avoid SSR issues
-      const { toPng } = await import('html-to-image');
+      // @ts-ignore
+      const domtoimage = (await import('dom-to-image-more')).default;
       const jsPDF = (await import('jspdf')).default;
 
       // Deselect any item to hide selection rings and rotation handles
-      // Also set the exportBustKey to force all image URLs to update with a fresh timestamp
+      // Set the exportBustKey to force all image URLs to update with a fresh timestamp
+      // to bypass the notorious WebKit identical-data-URI foreignObject bug.
       setSelectedItemId(null);
       setExportBustKey(Date.now());
       // Wait for React to re-render the images with the new eb= parameter and for rings to hide
@@ -227,18 +229,43 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       const moodboardEl = document.getElementById('moodboard-capture');
       if (!moodboardEl) return;
 
+      // HTML/DOM-to-image utilities drop 'border-width: 0px' on Safari/Chrome when parsing Tailwind's Preflight,
+      // which globally applies border-style: solid to all elements. This creates huge ghost borders.
+      // This utility temporarily forces border-style: none on all elements that don't visibly have a border.
+      const fixTailwindBorders = (root: HTMLElement) => {
+        const els = root.querySelectorAll('*');
+        const restored: {el: HTMLElement, val: string}[] = [];
+        els.forEach(node => {
+          const el = node as HTMLElement;
+          const style = window.getComputedStyle(el);
+          if (style.borderWidth === '0px' || style.borderWidth === '') {
+            restored.push({ el, val: el.style.borderStyle });
+            el.style.setProperty('border-style', 'none', 'important');
+          }
+        });
+        return () => restored.forEach(({el, val}) => el.style.borderStyle = val);
+      };
+
       // Page 1: Moodboard (Landscape)
-      // Using pixelRatio for high quality
-      const imgData1 = await toPng(moodboardEl, {
+      // dom-to-image-more is used over html-to-image as it correctly manages internal caches
+      // and escapes complex Tailwind utilities smoothly
+      const scale = 2; // Capture at 2x Retina resolution for crisp zooming
+      const restoreBorders1 = fixTailwindBorders(moodboardEl);
+      const imgData1 = await domtoimage.toJpeg(moodboardEl, {
+        quality: 0.98,
         cacheBust: true,
-        pixelRatio: 2,
-        backgroundColor: '#ffffff',
-        skipFonts: true, // Prevents cross-origin cssRules crashing when parsing external/dev stylesheets
+        bgcolor: '#ffffff',
+        width: moodboardEl.clientWidth * scale,
+        height: moodboardEl.clientHeight * scale,
         style: {
-          transform: 'scale(1)',
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          width: `${moodboardEl.clientWidth}px`,
+          height: `${moodboardEl.clientHeight}px`,
           filter: 'none'
         }
       });
+      restoreBorders1();
 
       const pdf = new jsPDF({
         orientation: 'l', // Landscape
@@ -261,36 +288,38 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
 
       const x1 = (pdfWidthL - finalW1) / 2;
       const y1 = (pdfHeightL - finalH1) / 2;
-      pdf.addImage(imgData1, 'PNG', x1, y1, finalW1, finalH1);
+      pdf.addImage(imgData1, 'JPEG', x1, y1, finalW1, finalH1);
 
       // Page 2: Table (Portrait)
       const tableEl = document.getElementById('table-capture');
       if (tableEl && canvasItems.length > 0) {
         pdf.addPage('a4', 'p'); // Portrait
 
-        // Temporarily remove tailwind classes that might cause issues with html-to-image table rendering
-        // html-to-image generally handles oklch correctly because it uses foreignObject.
-        // html-to-image generally handles oklch correctly because it uses foreignObject.
-        const imgData2 = await toPng(tableEl, {
+        const restoreBorders2 = fixTailwindBorders(tableEl);
+        const imgData2 = await domtoimage.toJpeg(tableEl, {
+          quality: 0.98,
           cacheBust: true,
-          pixelRatio: 2,
-          backgroundColor: '#ffffff',
-          skipFonts: true, // Prevents cross-origin cssRules crashing when parsing external/dev stylesheets
+          bgcolor: '#ffffff',
+          width: tableEl.clientWidth * scale,
+          height: tableEl.clientHeight * scale,
           style: {
-            transform: 'scale(1)', // Prevents layout shifts during capture
-            filter: 'none' // Prevents complex backdrop-blurs from crashing the SVG serializer
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+            width: `${tableEl.clientWidth}px`,
+            height: `${tableEl.clientHeight}px`,
+            filter: 'none'
           },
-          filter: (node) => {
-            // Filter out elements with data-html2canvas-ignore
-            if (node.hasAttribute && node.hasAttribute('data-html2canvas-ignore')) {
+          filter: (node: Node) => {
+            const el = node as HTMLElement;
+            if (el.hasAttribute && el.hasAttribute('data-html2canvas-ignore')) {
               return false;
             }
             return true;
           }
         });
+        restoreBorders2();
 
         const pdfWidthP = pdf.internal.pageSize.getWidth();
-
         const imgProps2 = pdf.getImageProperties(imgData2);
         const ratio2 = imgProps2.width / imgProps2.height;
 
@@ -298,14 +327,14 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
         const finalW2 = pdfWidthP - (margin * 2);
         const finalH2 = finalW2 / ratio2;
 
-        pdf.addImage(imgData2, 'PNG', margin, margin, finalW2, finalH2);
+        pdf.addImage(imgData2, 'JPEG', margin, margin, finalW2, finalH2);
       }
 
       pdf.save('moodboard-export.pdf');
 
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert('Failed to generate PDF. Check console for details.');
+      alert(`Failed to generate PDF. Error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsExporting(false);
       setExportBustKey(null);
