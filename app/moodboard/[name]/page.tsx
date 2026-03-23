@@ -29,8 +29,7 @@ export default function SavedMoodboardPage() {
   useEffect(() => {
     const fetchMoodboard = async () => {
       try {
-        const webhookUrl = process.env.NEXT_PUBLIC_OPEN_MOODBOARD_WEBHOOK as string;
-        const response = await fetch(webhookUrl);
+        const response = await fetch("/api/openmoodboard");
         if (!response.ok) throw new Error("Failed to fetch moodboards");
         const data = await response.json();
         const found = data.find(

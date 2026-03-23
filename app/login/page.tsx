@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@iconify/react";
 import Link from "next/link";
 
-const WEBHOOK_URL = process.env.NEXT_PUBLIC_LOGIN_WEBHOOK as string;
-
 export default function LoginPage() {
     const router = useRouter();
     const [email, setEmail] = useState("");
@@ -20,7 +18,7 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            const res = await fetch(WEBHOOK_URL, {
+            const res = await fetch("/api/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, password }),
@@ -129,8 +127,8 @@ export default function LoginPage() {
                     {message && (
                         <div
                             className={`w-full text-center text-sm font-semibold px-4 py-3 rounded-2xl transition-all ${message.type === "success"
-                                    ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
-                                    : "bg-red-50 text-red-500 border border-red-200"
+                                ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
+                                : "bg-red-50 text-red-500 border border-red-200"
                                 }`}
                         >
                             {message.text}

@@ -18,8 +18,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     const fetchMoodboards = async () => {
       try {
-        const webhookUrl = process.env.NEXT_PUBLIC_OPEN_MOODBOARD_WEBHOOK as string;
-        const response = await fetch(webhookUrl);
+        const response = await fetch("/api/openmoodboard");
         if (response.ok) {
           const data = await response.json();
           setMoodboards(data);

@@ -313,8 +313,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
         name: saveName.trim(),
         canvas_items: canvasItems,
       };
-      const webhookUrl = process.env.NEXT_PUBLIC_SAVE_MOODBOARD_WEBHOOK as string;
-      const response = await fetch(webhookUrl, {
+      const response = await fetch('/api/savemoodboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
