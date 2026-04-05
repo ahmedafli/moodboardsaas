@@ -604,7 +604,7 @@ export default function InpaintPage() {
                 className={`text-lg transition-transform ${isGenerating ? "animate-spin" : "group-hover:rotate-12"}`}
               />
               <span>{isGenerating ? "Generating..." : "Generate with AI"}</span>
-              {!isGenerating && <span className="bg-white/10 px-2 py-0.5 rounded text-[10px] opacity-60 ml-2">12 Credits</span>}
+              {!isGenerating && <span className="bg-white/10 px-2 py-0.5 rounded text-[10px] opacity-60 ml-2">1 Credits</span>}
             </button>
           </div>
         </div>
