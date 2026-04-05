@@ -1,178 +1,128 @@
-"use client";
+'use client'
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Icon } from "@iconify/react";
-import Link from "next/link";
+import { useState, useTransition, use } from 'react'
+import { Icon } from '@iconify/react'
+import { login } from './actions'
+import { createClient } from '@/utils/supabase/client'
 
-export default function LoginPage() {
-    const router = useRouter();
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [loading, setLoading] = useState(false);
-    const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>
+}) {
+  const params = use(searchParams)
+  const [isPending, startTransition] = useTransition()
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
 
-    async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        setMessage(null);
-        setLoading(true);
-
-        try {
-            const res = await fetch("/api/login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, password }),
-            });
-
-            const data = await res.json();
-
-            if (data.message === "User verified successfully") {
-                setMessage({ text: "Login successful! Redirecting…", type: "success" });
-                // Set session cookie (7 days)
-                document.cookie = `session=authenticated; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
-                setTimeout(() => router.push("/home"), 1500);
-            } else {
-                setMessage({ text: data.message || "Invalid username or password", type: "error" });
-            }
-        } catch {
-            setMessage({ text: "Something went wrong. Please try again.", type: "error" });
-        } finally {
-            setLoading(false);
-        }
+  const handleGoogleLogin = async () => {
+    setIsGoogleLoading(true)
+    const supabase = createClient()
+    
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+    
+    if (error) {
+      console.error('Google login error:', error)
+      setIsGoogleLoading(false)
     }
+  }
 
-    return (
-        <div className="min-h-screen main-bg text-slate-800 flex items-center justify-center p-6">
-            {/* Login Card */}
-            <div className="max-w-md w-full glass-bg rounded-[2.5rem] p-10 flex flex-col items-center gap-8 shadow-2xl relative overflow-hidden">
-                {/* Decorative Background Shapes */}
-                <div className="absolute -top-10 -right-10 w-40 h-40 bg-orange-500/5 rounded-full blur-3xl" />
-                <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-blue-500/5 rounded-full blur-3xl" />
+  return (
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden main-bg">
+      {/* Dynamic Background Elements - Matching the Moodboard Theme */}
+      <div className="absolute inset-0 z-0">
+        <div className="absolute top-[20%] left-[20%] w-96 h-96 bg-amber-500/10 rounded-full blur-[120px] mix-blend-multiply opacity-60"></div>
+        <div className="absolute bottom-[20%] right-[20%] w-96 h-96 bg-orange-500/10 rounded-full blur-[120px] mix-blend-multiply opacity-60"></div>
+      </div>
 
-                {/* Top Icon */}
-                <div className="relative">
-                    <div className="w-24 h-24 bg-white/40 backdrop-blur-2xl rounded-[2rem] flex items-center justify-center border border-white/60 shadow-inner group">
-                        <Icon
-                            icon="lucide:shield-check"
-                            className="text-5xl text-[#f59e0b] group-hover:scale-110 transition-transform duration-500"
-                        />
-                    </div>
-                    <div className="absolute -top-2 -right-2 w-8 h-8 bg-[#f59e0b] rounded-full flex items-center justify-center text-white shadow-lg border-4 border-white">
-                        <Icon icon="lucide:lock" className="text-xs" />
-                    </div>
-                </div>
-
-                {/* Headings */}
-                <div className="text-center">
-                    <h1 className="text-4xl font-bold tracking-tight text-slate-900 mb-2">
-                        Welcome Back
-                    </h1>
-                    <p className="text-slate-500 font-medium">
-                        Enter your credentials to access your account
-                    </p>
-                </div>
-
-                {/* Form */}
-                <form onSubmit={handleSubmit} className="w-full flex flex-col gap-6">
-                    {/* Email Field */}
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest pl-2">
-                            Email Address
-                        </label>
-                        <div className="relative">
-                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                                <Icon icon="lucide:mail" />
-                            </div>
-                            <input
-                                type="email"
-                                required
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder="Enter your email"
-                                className="w-full glass-input rounded-2xl py-4 pl-12 pr-4 outline-none text-slate-900 font-medium placeholder:text-slate-300"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Password Field */}
-                    <div className="flex flex-col gap-2">
-                        <div className="flex justify-between items-center px-2">
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                                Password
-                            </label>
-                            <a
-                                href="#"
-                                id="forgot-password-link"
-                                className="text-xs font-bold text-[#f59e0b] hover:underline uppercase tracking-wider"
-                            >
-                                Forgot password?
-                            </a>
-                        </div>
-                        <div className="relative">
-                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                                <Icon icon="lucide:lock" />
-                            </div>
-                            <input
-                                type="password"
-                                required
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Enter your password"
-                                className="w-full glass-input rounded-2xl py-4 pl-12 pr-4 outline-none text-slate-900 font-medium placeholder:text-slate-300"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Feedback Message */}
-                    {message && (
-                        <div
-                            className={`w-full text-center text-sm font-semibold px-4 py-3 rounded-2xl transition-all ${message.type === "success"
-                                ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
-                                : "bg-red-50 text-red-500 border border-red-200"
-                                }`}
-                        >
-                            {message.text}
-                        </div>
-                    )}
-
-                    {/* Submit Button */}
-                    <button
-                        type="submit"
-                        id="btn-login-submit"
-                        disabled={loading}
-                        className="w-full py-4 mt-2 bg-slate-900 hover:bg-black text-white font-bold rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
-                    >
-                        {loading ? (
-                            <>
-                                <Icon icon="lucide:loader-2" className="animate-spin text-lg" />
-                                <span>Verifying…</span>
-                            </>
-                        ) : (
-                            <>
-                                <span>Login to Dashboard</span>
-                                <Icon
-                                    icon="lucide:arrow-right"
-                                    className="group-hover:translate-x-1 transition-transform"
-                                />
-                            </>
-                        )}
-                    </button>
-                </form>
-
-                {/* Sign Up Link */}
-                <div className="text-center">
-                    <span className="text-sm text-slate-400 font-medium">
-                        Don&apos;t have an account?
-                    </span>
-                    <Link
-                        href="#"
-                        id="signup-link"
-                        className="text-sm font-bold text-slate-900 hover:text-[#f59e0b] transition-colors ml-1"
-                    >
-                        Request Access
-                    </Link>
-                </div>
-            </div>
+      <div className="w-full max-w-md p-8 relative z-10 glass-bg rounded-[2.5rem]">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 glass-bg rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <Icon icon="lucide:layout-dashboard" className="w-8 h-8 text-[#f59e0b]" />
+          </div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2 tracking-tight">Welcome Back</h1>
+          <p className="text-slate-500 text-sm">Log in to access your studio</p>
         </div>
-    );
+
+        {params?.error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 text-red-600 text-sm font-medium">
+            <Icon icon="lucide:alert-circle" className="w-5 h-5 flex-shrink-0" />
+            <p>{params.error}</p>
+          </div>
+        )}
+
+        <form action={login} className="space-y-5">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <Icon icon="lucide:mail" className="h-5 w-5 text-slate-400" />
+              </div>
+              <input
+                type="email"
+                name="email"
+                required
+                className="w-full glass-input rounded-2xl py-3.5 pl-11 pr-4 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-[#f59e0b]/20 transition-all font-medium"
+                placeholder="you@example.com"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between items-center ml-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Password</label>
+              <a href="/forgot-password" className="text-[10px] font-bold text-[#f59e0b] hover:text-orange-600 transition-colors uppercase tracking-widest">
+                Forgot password?
+              </a>
+            </div>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <Icon icon="lucide:lock" className="h-5 w-5 text-slate-400" />
+              </div>
+              <input
+                type="password"
+                name="password"
+                required
+                className="w-full glass-input rounded-2xl py-3.5 pl-11 pr-4 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-[#f59e0b]/20 transition-all font-medium"
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="w-full py-4 px-4 bg-slate-900 hover:bg-black text-white rounded-2xl font-bold shadow-xl shadow-slate-900/20 transition-all active:scale-[0.98] mt-6 flex items-center justify-center gap-2"
+          >
+            Sign In To Studio
+            <Icon icon="lucide:arrow-right" className="w-5 h-5" />
+          </button>
+        </form>
+
+        <div className="mt-8 flex items-center gap-4">
+          <div className="flex-1 h-px bg-slate-200"></div>
+          <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Or</span>
+          <div className="flex-1 h-px bg-slate-200"></div>
+        </div>
+
+        <div className="mt-6">
+          <button
+            onClick={handleGoogleLogin}
+            disabled={isGoogleLoading}
+            className="w-full py-4 px-4 glass-button text-slate-700 rounded-2xl font-bold transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed uppercase text-[11px] tracking-widest"
+          >
+            {isGoogleLoading ? (
+              <Icon icon="lucide:loader-2" className="w-5 h-5 animate-spin text-[#f59e0b]" />
+            ) : (
+              <Icon icon="logos:google-icon" className="w-5 h-5" />
+            )}
+            Continue with Google
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }

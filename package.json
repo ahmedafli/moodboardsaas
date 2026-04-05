@@ -9,7 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/replicate": "^2.0.26",
     "@iconify/react": "^6.0.2",
+    "@supabase/ssr": "^0.10.0",
+    "@supabase/supabase-js": "^2.101.1",
+    "ai": "^6.0.138",
     "dom-to-image-more": "^3.7.2",
     "framer-motion": "^12.36.0",
     "html-to-image": "^1.11.13",

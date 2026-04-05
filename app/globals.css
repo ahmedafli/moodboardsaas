@@ -11,7 +11,10 @@ body {
   font-family: var(--font-body);
 }
 
-h1,h2,h3, .heading-font {
+h1,
+h2,
+h3,
+.heading-font {
   font-family: var(--font-heading);
 }
 
@@ -65,8 +68,10 @@ h1,h2,h3, .heading-font {
 }
 
 .no-scrollbar {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
 }
 
 /* Retaining previous background dot pattern for the moodboard page */
@@ -77,4 +82,9 @@ h1,h2,h3, .heading-font {
 
 .furniture-card:hover .drag-handle {
   opacity: 1;
+}
+
+.mask-overlay {
+  background: radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.3) 0%, transparent 70%);
+  border: 2px dashed #f59e0b;
 }

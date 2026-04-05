@@ -6,9 +6,13 @@ import Navbar from "./Navbar";
 
 export default function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isLoginPage = pathname === "/login";
+  const isAuthPage = 
+    pathname === "/login" || 
+    pathname === "/forgot-password" || 
+    pathname === "/update-password" ||
+    pathname?.startsWith("/auth");
 
-  if (isLoginPage) {
+  if (isAuthPage) {
     return <>{children}</>;
   }
 

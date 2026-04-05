@@ -8,6 +8,7 @@ const navLinks = [
   { id: "nav-collect-data", icon: "lucide:link", href: "/home" },
   { id: "nav-create-moodboard", icon: "lucide:layout-grid", href: "/moodboard" },
   { id: "nav-projects", icon: "lucide:folder-closed", href: "/projects" },
+  { id: "nav-inpaint", icon: "lucide:wand-2", href: "/inpaint" },
 ];
 
 export default function Sidebar() {
