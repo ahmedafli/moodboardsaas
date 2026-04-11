@@ -194,18 +194,18 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
   // Helper to ensure all images are routed through our proxy to bypass CORS during PDF export
   const getProxiedImageUrl = (url: string) => {
     if (!url) return '';
-    
+
     let proxied = url;
     // If it's already a proxied URL or a local relative path, return as is
     if (!url.startsWith('/api/proxy-image') && !url.startsWith('data:')) {
       proxied = `/api/proxy-image?url=${encodeURIComponent(url)}`;
     }
-    
+
     // Append export bust key if we're actively exporting to foil all caches
     if (exportBustKey && !proxied.startsWith('data:')) {
       proxied += (proxied.includes('?') ? '&' : '?') + `eb=${exportBustKey}`;
     }
-    
+
     return proxied;
   };
 
@@ -234,7 +234,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       // This utility temporarily forces border-style: none on all elements that don't visibly have a border.
       const fixTailwindBorders = (root: HTMLElement) => {
         const els = root.querySelectorAll('*');
-        const restored: {el: HTMLElement, val: string}[] = [];
+        const restored: { el: HTMLElement, val: string }[] = [];
         els.forEach(node => {
           const el = node as HTMLElement;
           const style = window.getComputedStyle(el);
@@ -243,7 +243,25 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
             el.style.setProperty('border-style', 'none', 'important');
           }
         });
-        return () => restored.forEach(({el, val}) => el.style.borderStyle = val);
+        return () => restored.forEach(({ el, val }) => el.style.borderStyle = val);
+      };
+
+      const fixOverflowHidden = (root: HTMLElement) => {
+        const els = root.querySelectorAll('*');
+        const restored: { el: HTMLElement, val: string }[] = [];
+
+        // Check root as well
+        const allNodes = [root, ...Array.from(els)];
+
+        allNodes.forEach(node => {
+          const el = node as HTMLElement;
+          const style = window.getComputedStyle(el);
+          if (style.overflow === 'hidden' || style.overflowY === 'hidden' || style.overflowX === 'hidden') {
+            restored.push({ el, val: el.style.overflow });
+            el.style.setProperty('overflow', 'visible', 'important');
+          }
+        });
+        return () => restored.forEach(({ el, val }) => el.style.overflow = val);
       };
 
       // Page 1: Moodboard (Landscape)
@@ -251,21 +269,26 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       // and escapes complex Tailwind utilities smoothly
       const scale = 2; // Capture at 2x Retina resolution for crisp zooming
       const restoreBorders1 = fixTailwindBorders(moodboardEl);
+      const restoreOverflow1 = fixOverflowHidden(moodboardEl);
+      const mbWidth = moodboardEl.scrollWidth;
+      const mbHeight = moodboardEl.scrollHeight;
       const imgData1 = await domtoimage.toJpeg(moodboardEl, {
         quality: 0.98,
         cacheBust: true,
         bgcolor: '#ffffff',
-        width: moodboardEl.clientWidth * scale,
-        height: moodboardEl.clientHeight * scale,
+        width: mbWidth * scale,
+        height: mbHeight * scale,
         style: {
           transform: `scale(${scale})`,
           transformOrigin: 'top left',
-          width: `${moodboardEl.clientWidth}px`,
-          height: `${moodboardEl.clientHeight}px`,
-          filter: 'none'
+          width: `${mbWidth}px`,
+          height: `${mbHeight}px`,
+          filter: 'none',
+          paddingBottom: '20px' // Extra buffer to prevent cropping
         }
       });
       restoreBorders1();
+      restoreOverflow1();
 
       const pdf = new jsPDF({
         orientation: 'l', // Landscape
@@ -296,18 +319,28 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
         pdf.addPage('a4', 'p'); // Portrait
 
         const restoreBorders2 = fixTailwindBorders(tableEl);
+        const restoreOverflow2 = fixOverflowHidden(tableEl);
+
+        // Add artificial extra space to the actual DOM element right before capture
+        const originalPaddingBottom = tableEl.style.paddingBottom;
+        tableEl.style.paddingBottom = '60px'; // Give it massive breathing room just for capture
+
+        const tbWidth = tableEl.scrollWidth;
+        const tbHeight = tableEl.scrollHeight + 40; // Add extra 40px buffer to height
+
         const imgData2 = await domtoimage.toJpeg(tableEl, {
           quality: 0.98,
           cacheBust: true,
           bgcolor: '#ffffff',
-          width: tableEl.clientWidth * scale,
-          height: tableEl.clientHeight * scale,
+          width: tbWidth * scale,
+          height: tbHeight * scale,
           style: {
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
-            width: `${tableEl.clientWidth}px`,
-            height: `${tableEl.clientHeight}px`,
-            filter: 'none'
+            width: `${tbWidth}px`,
+            height: `${tbHeight}px`,
+            filter: 'none',
+            paddingBottom: '40px' // Add explicit padding to the clone to force expansion
           },
           filter: (node: Node) => {
             const el = node as HTMLElement;
@@ -317,7 +350,10 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
             return true;
           }
         });
+
+        tableEl.style.paddingBottom = originalPaddingBottom;
         restoreBorders2();
+        restoreOverflow2();
 
         const pdfWidthP = pdf.internal.pageSize.getWidth();
         const imgProps2 = pdf.getImageProperties(imgData2);
