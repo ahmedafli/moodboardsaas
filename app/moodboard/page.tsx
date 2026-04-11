@@ -191,14 +191,69 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
   const containerRef = useRef<HTMLDivElement>(null);
   const [exportBustKey, setExportBustKey] = useState<number | null>(null);
 
-  // Helper to ensure all images are routed through our proxy to bypass CORS during PDF export
-  const getProxiedImageUrl = (url: string) => {
+  // Helper to convert Google Drive URLs to high-performance CDN URLs directly in the browser
+  const convertGoogleDriveUrl = (url: string): string => {
+    try {
+      const urlObj = new URL(url);
+      if (urlObj.hostname === 'drive.google.com') {
+        let fileId: string | null = null;
+        if (urlObj.pathname === '/uc' && urlObj.searchParams.has('id')) {
+          fileId = urlObj.searchParams.get('id');
+        } else if (urlObj.pathname === '/thumbnail' && urlObj.searchParams.has('id')) {
+          fileId = urlObj.searchParams.get('id');
+        } else if (urlObj.pathname.startsWith('/file/d/')) {
+          const match = urlObj.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+          if (match) fileId = match[1];
+        } else if (urlObj.searchParams.has('id')) {
+          fileId = urlObj.searchParams.get('id');
+        }
+        if (fileId) {
+          return `https://lh3.googleusercontent.com/d/${fileId}=w2000`;
+        }
+      }
+      return url;
+    } catch (e) {
+      return url;
+    }
+  };
+
+  // Helper to safely extract the original URL if a proxied URL was accidentally saved to the DB
+  const extractRealUrl = (url: string): string => {
+    if (!url) return '';
+    try {
+      if (url.includes('/api/proxy-image')) {
+        // Handle full URL or relative URL safely against dummy base
+        const parsed = new URL(url, 'http://localhost');
+        const target = parsed.searchParams.get('url');
+        if (target) {
+          // Re-append any cache busters that were dangling outside the 'url' param
+          const tParam = parsed.searchParams.get('t');
+          return tParam ? `${target}${target.includes('?') ? '&' : '?'}t=${tParam}` : target;
+        }
+      }
+      return url;
+    } catch {
+      return url;
+    }
+  };
+
+  // Helper to ensure all images are routed through our proxy ONLY when exporting to bypass CORS
+  const getDisplayImageUrl = (url: string) => {
     if (!url) return '';
 
-    let proxied = url;
+    // First strip out any accidental /api/proxy-image cruft stored in DB
+    const realSourceUrl = extractRealUrl(url);
+
+    // Convert raw Google Drive URLs to Google's specialized high-speed image CDN
+    const optimizedUrl = convertGoogleDriveUrl(realSourceUrl);
+
+    // Bypass proxy during normal viewing for blazing fast direct CDN loads and to avoid hitting Next.js API limits
+    if (!isExporting) return optimizedUrl;
+
+    let proxied = optimizedUrl;
     // If it's already a proxied URL or a local relative path, return as is
-    if (!url.startsWith('/api/proxy-image') && !url.startsWith('data:')) {
-      proxied = `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    if (!optimizedUrl.startsWith('/api/proxy-image') && !optimizedUrl.startsWith('data:')) {
+      proxied = `/api/proxy-image?url=${encodeURIComponent(optimizedUrl)}`;
     }
 
     // Append export bust key if we're actively exporting to foil all caches
@@ -223,10 +278,29 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       // to bypass the notorious WebKit identical-data-URI foreignObject bug.
       setSelectedItemId(null);
       setExportBustKey(Date.now());
-      // Wait for React to re-render the images with the new eb= parameter and for rings to hide
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Wait for React to re-render the DOM with the new proxied SRCs
+      await new Promise(resolve => setTimeout(resolve, 250));
 
       const moodboardEl = document.getElementById('moodboard-capture');
+      const tableEl = document.getElementById('table-capture');
+
+      // Helper to guarantee that all dynamically swapped proxy images have finished downloading
+      // before we fire the PDF render engine.
+      const waitForImages = async (container: HTMLElement | null) => {
+        if (!container) return;
+        const images = Array.from(container.querySelectorAll('img'));
+        await Promise.all(images.map(img => {
+          if (img.complete) return Promise.resolve();
+          return new Promise(resolve => {
+            img.onload = resolve;
+            img.onerror = resolve; // resolve anyway so export doesn't freeze permanently
+          });
+        }));
+      };
+
+      await waitForImages(moodboardEl);
+      await waitForImages(tableEl);
+
       if (!moodboardEl) return;
 
       // HTML/DOM-to-image utilities drop 'border-width: 0px' on Safari/Chrome when parsing Tailwind's Preflight,
@@ -314,7 +388,6 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       pdf.addImage(imgData1, 'JPEG', x1, y1, finalW1, finalH1);
 
       // Page 2: Table (Portrait)
-      const tableEl = document.getElementById('table-capture');
       if (tableEl && canvasItems.length > 0) {
         pdf.addPage('a4', 'p'); // Portrait
 
@@ -606,148 +679,153 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
 
       <div className="flex-1 flex flex-col w-full h-full gap-8 max-w-[1600px] mx-auto">
         {/* Moodboard builder Plan Container */}
-        <div
-          id="moodboard-capture"
-          ref={containerRef}
-          className="w-full min-h-[120vh] bg-white/60 backdrop-blur-xl rounded-3xl shadow-xl p-8 flex flex-col relative overflow-hidden border border-white/50 shrink-0"
-          onClick={() => setSelectedItemId(null)}
-        >
-          <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px] opacity-40 pointer-events-none" />
 
-          {canvasItems.map((item) => (
-            <motion.div
-              key={item.id}
-              drag
-              dragConstraints={containerRef}
-              dragMomentum={false}
-              dragElastic={0}
-              dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-              onDragStart={() => bringToFront(item.id)}
-              onDragEnd={(_, info) => {
-                setCanvasItems(prev => prev.map(i =>
-                  i.id === item.id
-                    ? { ...i, x: i.x + info.offset.x, y: i.y + info.offset.y }
-                    : i
-                ));
-              }}
-              onClick={(e: React.MouseEvent) => {
-                e.stopPropagation();
-                bringToFront(item.id);
-              }}
-              whileDrag={{ cursor: "grabbing" }}
-              className={`absolute bg-transparent group ${selectedItemId === item.id
-                ? 'ring-2 ring-indigo-400 ring-offset-2 z-[999]'
-                : 'hover:ring-1 hover:ring-gray-300 cursor-grab'
-                } transition-shadow`}
-              style={{
-                width: item.width,
-                height: item.height,
-                rotate: item.rotation,
-                zIndex: selectedItemId === item.id ? 999 : item.zIndex,
-                x: item.x,
-                y: item.y
-              }}
-            >
-              <img src={getProxiedImageUrl(item.image)} alt="Canvas Item" className="w-full h-full object-cover pointer-events-none rounded-[4px]" draggable="false" />
+        {/* Canvas Scroll Wrapper explicitly added so smaller PC screens won't squash or crop the fixed-size board */}
+        <div className="w-full overflow-x-auto pb-4">
+          <div
+            id="moodboard-capture"
+            ref={containerRef}
+            className="w-[1600px] h-[1200px] bg-white/60 backdrop-blur-xl rounded-3xl shadow-xl p-8 flex flex-col relative overflow-hidden border border-white/50 shrink-0"
+            style={{ minWidth: '1600px', minHeight: '1200px' }}
+            onClick={() => setSelectedItemId(null)}
+          >
+            <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px] opacity-40 pointer-events-none" />
 
-              {/* Corner Rotation Handles */}
-              {selectedItemId === item.id && (
-                <>
-                  <div
-                    className="absolute -top-3 -left-3 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full cursor-[url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'24\\' height=\\'24\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'black\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M21 2v6h-6\\'></path><path d=\\'M21 13a9 9 0 1 1-3-7.7L21 8\\'></path></svg>')_12_12,auto] z-[1000] hover:scale-125 hover:bg-indigo-50 transition-transform shadow-md flex items-center justify-center p-1"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => startRotate(item.id, e)}
-                  >
-                    <Icon icon="lucide:rotate-ccw" className="text-[10px] text-indigo-500 font-bold" />
-                  </div>
-                  <div
-                    className="absolute -top-3 -right-3 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full cursor-[url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'24\\' height=\\'24\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'black\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M3 2v6h6\\'></path><path d=\\'M3 13a9 9 0 1 0 3-7.7L3 8\\'></path></svg>')_12_12,auto] z-[1000] hover:scale-125 hover:bg-indigo-50 transition-transform shadow-md flex items-center justify-center p-1"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => startRotate(item.id, e)}
-                  >
-                    <Icon icon="lucide:rotate-cw" className="text-[10px] text-indigo-500 font-bold" />
-                  </div>
-                  <div
-                    className="absolute -bottom-3 -left-3 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full cursor-[url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'24\\' height=\\'24\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'black\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M21 22v-6h-6\\'></path><path d=\\'M21 11a9 9 0 1 0-3 7.7L21 16\\'></path></svg>')_12_12,auto] z-[1000] hover:scale-125 hover:bg-indigo-50 transition-transform shadow-md flex items-center justify-center p-1"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => startRotate(item.id, e)}
-                  >
-                    <Icon icon="lucide:rotate-ccw" className="text-[10px] text-indigo-500 font-bold" />
-                  </div>
-                  <div
-                    className="absolute -bottom-3 -right-3 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full cursor-[url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'24\\' height=\\'24\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'black\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M3 22v-6h6\\'></path><path d=\\'M3 11a9 9 0 1 1 3 7.7L3 16\\'></path></svg>')_12_12,auto] z-[1000] hover:scale-125 hover:bg-indigo-50 transition-transform shadow-md flex items-center justify-center p-1"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => startRotate(item.id, e)}
-                  >
-                    <Icon icon="lucide:rotate-cw" className="text-[10px] text-indigo-500 font-bold" />
-                  </div>
-                </>
-              )}
+            {canvasItems.map((item) => (
+              <motion.div
+                key={item.id}
+                drag
+                dragConstraints={containerRef}
+                dragMomentum={false}
+                dragElastic={0}
+                dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
+                onDragStart={() => bringToFront(item.id)}
+                onDragEnd={(_, info) => {
+                  setCanvasItems(prev => prev.map(i =>
+                    i.id === item.id
+                      ? { ...i, x: i.x + info.offset.x, y: i.y + info.offset.y }
+                      : i
+                  ));
+                }}
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  bringToFront(item.id);
+                }}
+                whileDrag={{ cursor: "grabbing" }}
+                className={`absolute bg-transparent group ${selectedItemId === item.id
+                  ? 'ring-2 ring-indigo-400 ring-offset-2 z-[999]'
+                  : 'hover:ring-1 hover:ring-gray-300 cursor-grab'
+                  } transition-shadow`}
+                style={{
+                  width: item.width,
+                  height: item.height,
+                  rotate: item.rotation,
+                  zIndex: selectedItemId === item.id ? 999 : item.zIndex,
+                  x: item.x,
+                  y: item.y
+                }}
+              >
+                <img src={getDisplayImageUrl(item.image)} alt="Canvas Item" className="w-full h-full object-cover pointer-events-none rounded-[4px]" draggable="false" />
 
-              {/* Item Controls Overlay */}
-              {selectedItemId === item.id && (
-                <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900/90 backdrop-blur-md rounded-2xl flex items-center justify-center gap-1.5 p-1.5 shadow-xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 z-50">
-                  <div className="flex gap-1.5 px-2 py-1 rounded-xl bg-white/10">
-                    <button
-                      onClick={(e) => handleResize(item.id, -20, e)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 transition-all"
-                      title="Decrease Size"
+                {/* Corner Rotation Handles */}
+                {selectedItemId === item.id && (
+                  <>
+                    <div
+                      className="absolute -top-3 -left-3 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full cursor-[url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'24\\' height=\\'24\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'black\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M21 2v6h-6\\'></path><path d=\\'M21 13a9 9 0 1 1-3-7.7L21 8\\'></path></svg>')_12_12,auto] z-[1000] hover:scale-125 hover:bg-indigo-50 transition-transform shadow-md flex items-center justify-center p-1"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => startRotate(item.id, e)}
                     >
-                      <Icon icon="lucide:minus" className="text-sm" />
-                    </button>
-                    <div className="w-px h-6 bg-white/20 my-auto" />
-                    <button
-                      onClick={(e) => handleResize(item.id, 20, e)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 transition-all"
-                      title="Increase Size"
+                      <Icon icon="lucide:rotate-ccw" className="text-[10px] text-indigo-500 font-bold" />
+                    </div>
+                    <div
+                      className="absolute -top-3 -right-3 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full cursor-[url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'24\\' height=\\'24\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'black\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M3 2v6h6\\'></path><path d=\\'M3 13a9 9 0 1 0 3-7.7L3 8\\'></path></svg>')_12_12,auto] z-[1000] hover:scale-125 hover:bg-indigo-50 transition-transform shadow-md flex items-center justify-center p-1"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => startRotate(item.id, e)}
                     >
-                      <Icon icon="lucide:plus" className="text-sm" />
+                      <Icon icon="lucide:rotate-cw" className="text-[10px] text-indigo-500 font-bold" />
+                    </div>
+                    <div
+                      className="absolute -bottom-3 -left-3 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full cursor-[url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'24\\' height=\\'24\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'black\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M21 22v-6h-6\\'></path><path d=\\'M21 11a9 9 0 1 0-3 7.7L21 16\\'></path></svg>')_12_12,auto] z-[1000] hover:scale-125 hover:bg-indigo-50 transition-transform shadow-md flex items-center justify-center p-1"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => startRotate(item.id, e)}
+                    >
+                      <Icon icon="lucide:rotate-ccw" className="text-[10px] text-indigo-500 font-bold" />
+                    </div>
+                    <div
+                      className="absolute -bottom-3 -right-3 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full cursor-[url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'24\\' height=\\'24\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'black\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M3 22v-6h6\\'></path><path d=\\'M3 11a9 9 0 1 1 3 7.7L3 16\\'></path></svg>')_12_12,auto] z-[1000] hover:scale-125 hover:bg-indigo-50 transition-transform shadow-md flex items-center justify-center p-1"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => startRotate(item.id, e)}
+                    >
+                      <Icon icon="lucide:rotate-cw" className="text-[10px] text-indigo-500 font-bold" />
+                    </div>
+                  </>
+                )}
+
+                {/* Item Controls Overlay */}
+                {selectedItemId === item.id && (
+                  <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900/90 backdrop-blur-md rounded-2xl flex items-center justify-center gap-1.5 p-1.5 shadow-xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 z-50">
+                    <div className="flex gap-1.5 px-2 py-1 rounded-xl bg-white/10">
+                      <button
+                        onClick={(e) => handleResize(item.id, -20, e)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 transition-all"
+                        title="Decrease Size"
+                      >
+                        <Icon icon="lucide:minus" className="text-sm" />
+                      </button>
+                      <div className="w-px h-6 bg-white/20 my-auto" />
+                      <button
+                        onClick={(e) => handleResize(item.id, 20, e)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 transition-all"
+                        title="Increase Size"
+                      >
+                        <Icon icon="lucide:plus" className="text-sm" />
+                      </button>
+                    </div>
+
+                    <div className="flex gap-1.5 px-2 py-1 rounded-xl bg-white/10 hidden">
+                      <button
+                        onClick={(e) => handleRotate(item.id, -15, e)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 transition-all"
+                        title="Rotate Left"
+                      >
+                        <Icon icon="lucide:rotate-ccw" className="text-sm" />
+                      </button>
+                      <div className="w-px h-6 bg-white/20 my-auto" />
+                      <button
+                        onClick={(e) => handleRotate(item.id, 15, e)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 transition-all"
+                        title="Rotate Right"
+                      >
+                        <Icon icon="lucide:rotate-cw" className="text-sm" />
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={(e) => handleRemove(item.id, e)}
+                      className="w-10 h-10 rounded-xl bg-red-500/20 hover:bg-red-500 flex items-center justify-center text-red-300 hover:text-white ml-2 transition-all group/delete"
+                      title="Remove item"
+                    >
+                      <Icon icon="lucide:trash-2" className="text-lg group-hover/delete:scale-110 transition-transform" />
                     </button>
                   </div>
+                )}
+              </motion.div>
+            ))}
 
-                  <div className="flex gap-1.5 px-2 py-1 rounded-xl bg-white/10 hidden">
-                    <button
-                      onClick={(e) => handleRotate(item.id, -15, e)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 transition-all"
-                      title="Rotate Left"
-                    >
-                      <Icon icon="lucide:rotate-ccw" className="text-sm" />
-                    </button>
-                    <div className="w-px h-6 bg-white/20 my-auto" />
-                    <button
-                      onClick={(e) => handleRotate(item.id, 15, e)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 transition-all"
-                      title="Rotate Right"
-                    >
-                      <Icon icon="lucide:rotate-cw" className="text-sm" />
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={(e) => handleRemove(item.id, e)}
-                    className="w-10 h-10 rounded-xl bg-red-500/20 hover:bg-red-500 flex items-center justify-center text-red-300 hover:text-white ml-2 transition-all group/delete"
-                    title="Remove item"
-                  >
-                    <Icon icon="lucide:trash-2" className="text-lg group-hover/delete:scale-110 transition-transform" />
-                  </button>
+            {canvasItems.length === 0 && (
+              <div className="relative z-10 flex flex-col items-center justify-center h-full text-center flex-1">
+                <div className="w-20 h-20 bg-indigo-50/80 backdrop-blur-md rounded-2xl flex items-center justify-center mb-6 shadow-sm border border-white">
+                  <Icon icon="lucide:layout-dashboard" className="text-4xl text-indigo-400" />
                 </div>
-              )}
-            </motion.div>
-          ))}
-
-          {canvasItems.length === 0 && (
-            <div className="relative z-10 flex flex-col items-center justify-center h-full text-center flex-1">
-              <div className="w-20 h-20 bg-indigo-50/80 backdrop-blur-md rounded-2xl flex items-center justify-center mb-6 shadow-sm border border-white">
-                <Icon icon="lucide:layout-dashboard" className="text-4xl text-indigo-400" />
+                <h2 className="text-3xl font-bold border-b-2 border-transparent bg-clip-text text-transparent bg-gradient-to-r from-gray-700 to-gray-500 mb-3">
+                  Moodboard Canvas
+                </h2>
+                <p className="text-gray-500 max-w-md mx-auto">
+                  Drag and drop products or click the plus icon to start bringing your vision to life.
+                </p>
               </div>
-              <h2 className="text-3xl font-bold border-b-2 border-transparent bg-clip-text text-transparent bg-gradient-to-r from-gray-700 to-gray-500 mb-3">
-                Moodboard Canvas
-              </h2>
-              <p className="text-gray-500 max-w-md mx-auto">
-                Drag and drop products or click the plus icon to start bringing your vision to life.
-              </p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Product Details Table */}
@@ -793,7 +871,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 shadow-sm flex-shrink-0">
-                            <img src={group.image.startsWith('data:') ? group.image : getProxiedImageUrl(group.image)} alt={group.productName} className="w-full h-full object-cover" crossOrigin="anonymous" loading="eager" />
+                            <img src={group.image.startsWith('data:') ? group.image : getDisplayImageUrl(group.image)} alt={group.productName} className="w-full h-full object-cover" loading="eager" />
                           </div>
                           <div>
                             <p className="text-sm font-semibold text-gray-800 line-clamp-1">{group.productName}</p>
