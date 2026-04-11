@@ -247,21 +247,17 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
     // Convert raw Google Drive URLs to Google's specialized high-speed image CDN
     const optimizedUrl = convertGoogleDriveUrl(realSourceUrl);
 
-    // Bypass proxy during normal viewing for blazing fast direct CDN loads and to avoid hitting Next.js API limits
+    // Bypass proxy during normal viewing for blazing fast direct CDN loads 
     if (!isExporting) return optimizedUrl;
 
-    let proxied = optimizedUrl;
-    // If it's already a proxied URL or a local relative path, return as is
-    if (!optimizedUrl.startsWith('/api/proxy-image') && !optimizedUrl.startsWith('data:')) {
-      proxied = `/api/proxy-image?url=${encodeURIComponent(optimizedUrl)}`;
+    // During export, we MUST proxy ALL images to securely inject CORS headers. Otherwise, the PDF engine's XHR fetches get blocked, resulting in a blank PDF.
+    // Previously, piping 20+ images through '/api/proxy-image' triggered browser 6-connection limits and Node.js timeouts, breaking the images ("Canvas Item" error).
+    // To solve both speed and reliability, we route exclusively through the world-class `wsrv.nl` Edge Proxy which handles infinite concurrency and guarantees CORS natively.
+    if (!optimizedUrl.startsWith('data:') && optimizedUrl.startsWith('http')) {
+      return `https://wsrv.nl/?url=${encodeURIComponent(optimizedUrl)}&t=${exportBustKey || Date.now()}`;
     }
 
-    // Append export bust key if we're actively exporting to foil all caches
-    if (exportBustKey && !proxied.startsWith('data:')) {
-      proxied += (proxied.includes('?') ? '&' : '?') + `eb=${exportBustKey}`;
-    }
-
-    return proxied;
+    return optimizedUrl;
   };
 
   const exportToPDF = async () => {
@@ -341,7 +337,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       // Page 1: Moodboard (Landscape)
       // dom-to-image-more is used over html-to-image as it correctly manages internal caches
       // and escapes complex Tailwind utilities smoothly
-      const scale = 2; // Capture at 2x Retina resolution for crisp zooming
+      const scale = 1.5; // Capture at 1.5x resolution for crisp zooming without overwhelming the CPU
       const restoreBorders1 = fixTailwindBorders(moodboardEl);
       const restoreOverflow1 = fixOverflowHidden(moodboardEl);
       const mbWidth = moodboardEl.scrollWidth;
@@ -875,7 +871,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
                           </div>
                           <div>
                             <p className="text-sm font-semibold text-gray-800 line-clamp-1">{group.productName}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">Added to canvas</p>
+                            <p data-html2canvas-ignore="true" className="text-xs text-gray-400 mt-0.5">Added to canvas</p>
                           </div>
                         </div>
                       </td>
