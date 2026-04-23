@@ -1,11 +1,19 @@
 import { Icon } from '@iconify/react'
 import { resetPassword } from '@/app/login/actions'
+import { cookies } from 'next/headers'
 
-export default function ForgotPasswordPage({
+export default async function ForgotPasswordPage({
   searchParams,
 }: {
   searchParams: { message?: string; error?: string }
 }) {
+  const cookieStore = await cookies()
+  const flashError = cookieStore.get('forgot_password_error')?.value
+  const flashMessage = cookieStore.get('forgot_password_message')?.value
+
+  const errorMessage = flashError ?? searchParams?.error
+  const successMessage = flashMessage ?? searchParams?.message
+
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden main-bg">
       {/* Dynamic Background Elements */}
@@ -29,17 +37,17 @@ export default function ForgotPasswordPage({
           <p className="text-slate-500 text-sm">Enter your email and we'll send a link</p>
         </div>
 
-        {searchParams?.error && (
+        {errorMessage && (
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 text-red-600 text-sm font-medium">
             <Icon icon="lucide:alert-circle" className="w-5 h-5 flex-shrink-0" />
-            <p>{searchParams.error}</p>
+            <p>{errorMessage}</p>
           </div>
         )}
 
-        {searchParams?.message && (
+        {successMessage && (
           <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center gap-3 text-emerald-600 text-sm font-medium">
             <Icon icon="lucide:check-circle-2" className="w-5 h-5 flex-shrink-0" />
-            <p>{searchParams.message}</p>
+            <p>{successMessage}</p>
           </div>
         )}
 

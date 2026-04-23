@@ -25,6 +25,7 @@ export async function login(formData: FormData) {
 }
 
 export async function resetPassword(formData: FormData) {
+  const cookieStore = await cookies()
   const supabase = await createClient()
   const email = formData.get('email') as string
 
@@ -33,35 +34,73 @@ export async function resetPassword(formData: FormData) {
   })
 
   if (error) {
-    return redirect('/forgot-password?error=' + encodeURIComponent(error.message))
+    const isRateLimited = error.message.toLowerCase().includes('rate limit')
+    if (isRateLimited) {
+      cookieStore.set(
+        'forgot_password_error',
+        'Too many reset attempts. Please try again in 1 hour.',
+        { path: '/forgot-password', maxAge: 60 }
+      )
+      return redirect('/forgot-password')
+    }
+
+    cookieStore.set('forgot_password_error', 'Unable to send reset link. Please try again.', {
+      path: '/forgot-password',
+      maxAge: 60,
+    })
+    return redirect('/forgot-password')
   }
 
-  return redirect('/forgot-password?message=Check your email for the reset link')
+  cookieStore.set('forgot_password_message', 'Check your email for the reset link', {
+    path: '/forgot-password',
+    maxAge: 60,
+  })
+  return redirect('/forgot-password')
 }
 
 export async function updatePassword(formData: FormData) {
+  const cookieStore = await cookies()
+  const isInviteFlow = Boolean(cookieStore.get('must_set_password'))
   const supabase = await createClient()
   const password = formData.get('password') as string
+  const confirmPassword = formData.get('confirmPassword') as string
   const displayName = formData.get('displayName') as string
   const phone = formData.get('phone') as string
 
-  // Note: Providing 'phone' at the root might trigger an SMS provider error if SMS is not configured in Supabase.
-  // Storing them in raw_user_meta_data is significantly safer and still visible in user profile data.
-  const { error } = await supabase.auth.updateUser({
+  if (!isInviteFlow && password !== confirmPassword) {
+    return redirect('/update-password?error=' + encodeURIComponent('Passwords do not match'))
+  }
+
+  const updatePayload: {
+    password: string
+    data?: {
+      display_name: string
+      phone_number: string
+    }
+  } = {
     password: password,
-    data: {
+  }
+
+  if (isInviteFlow) {
+    // Note: Providing 'phone' at the root might trigger an SMS provider error if SMS is not configured in Supabase.
+    // Storing it in metadata is safer and still visible in profile data.
+    updatePayload.data = {
       display_name: displayName,
       phone_number: phone,
     }
-  })
+  }
+
+  const { error } = await supabase.auth.updateUser(updatePayload)
 
   if (error) {
     return redirect('/update-password?error=' + encodeURIComponent(error.message))
   }
 
-  // Clear the trap cookie!
-  const cookieStore = await cookies()
+  // Clear the trap cookie after successful password setup.
   cookieStore.delete('must_set_password')
 
-  return redirect('/home')
+  // Invite + reset: sign out so /login shows the real form (proxy sends logged-in
+  // users from /login to /home).
+  await supabase.auth.signOut()
+  return redirect('/login')
 }
