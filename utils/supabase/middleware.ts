@@ -39,8 +39,7 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute =
     url.pathname === '/login' ||
     url.pathname.startsWith('/auth') ||
-    url.pathname.startsWith('/forgot-password') ||
-    url.pathname.startsWith('/reset-password')
+    url.pathname.startsWith('/forgot-password')
 
   // Invite-only protection logic
   if (!user && !isAuthRoute) {

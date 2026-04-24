@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "../../../utils/supabase/server";
 
 export async function POST(req: NextRequest) {
     const WEBHOOK_URL = process.env.WEBHOOK_SCRAPE_URL;
@@ -10,12 +11,24 @@ export async function POST(req: NextRequest) {
         );
     }
     try {
+        const supabase = await createClient();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+            return NextResponse.json(
+                { error: "Unauthorized" },
+                { status: 401 }
+            );
+        }
+
         const body = await req.json();
 
         const webhookResponse = await fetch(WEBHOOK_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify({
+                ...body,
+                user_id: user.id,
+            }),
         });
 
         if (!webhookResponse.ok) {

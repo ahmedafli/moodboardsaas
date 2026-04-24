@@ -3,6 +3,7 @@
 import { Icon } from "@iconify/react";
 import { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
+import { createClient } from "@/utils/supabase/client";
 
 // Product Type
 interface Product {
@@ -179,6 +180,7 @@ export interface MoodboardPageProps {
 }
 
 export default function MoodboardPage({ initialCanvasItems, moodboardName }: MoodboardPageProps = {}) {
+  const supabase = createClient();
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -188,6 +190,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
   const [saveName, setSaveName] = useState('');
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>(initialCanvasItems || []);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [exportBustKey, setExportBustKey] = useState<number | null>(null);
 
@@ -454,11 +457,15 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
 
   const saveMoodboard = async () => {
     if (isSaving || !saveName.trim()) return;
+    if (!currentUserId) {
+      alert("Please log in before saving a moodboard.");
+      return;
+    }
     try {
       setIsSaving(true);
       setSaveSuccess(false);
       const payload = {
-        user_id: 1,
+        user_id: currentUserId,
         name: saveName.trim(),
         canvas_items: canvasItems,
       };
@@ -611,6 +618,15 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isRotating]);
+
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id ?? null);
+    };
+
+    fetchCurrentUser();
+  }, [supabase]);
 
   useEffect(() => {
     const fetchProducts = async () => {

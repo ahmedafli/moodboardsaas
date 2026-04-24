@@ -1,9 +1,8 @@
 'use client'
 
-import { useState, useTransition, use } from 'react'
+import { use } from 'react'
 import { Icon } from '@iconify/react'
 import { login } from './actions'
-import { createClient } from '@/utils/supabase/client'
 
 export default function LoginPage({
   searchParams,
@@ -11,25 +10,6 @@ export default function LoginPage({
   searchParams: Promise<{ error?: string }>
 }) {
   const params = use(searchParams)
-  const [isPending, startTransition] = useTransition()
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
-
-  const handleGoogleLogin = async () => {
-    setIsGoogleLoading(true)
-    const supabase = createClient()
-    
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
-    
-    if (error) {
-      console.error('Google login error:', error)
-      setIsGoogleLoading(false)
-    }
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden main-bg">
@@ -101,27 +81,6 @@ export default function LoginPage({
             <Icon icon="lucide:arrow-right" className="w-5 h-5" />
           </button>
         </form>
-
-        <div className="mt-8 flex items-center gap-4">
-          <div className="flex-1 h-px bg-slate-200"></div>
-          <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Or</span>
-          <div className="flex-1 h-px bg-slate-200"></div>
-        </div>
-
-        <div className="mt-6">
-          <button
-            onClick={handleGoogleLogin}
-            disabled={isGoogleLoading}
-            className="w-full py-4 px-4 glass-button text-slate-700 rounded-2xl font-bold transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed uppercase text-[11px] tracking-widest"
-          >
-            {isGoogleLoading ? (
-              <Icon icon="lucide:loader-2" className="w-5 h-5 animate-spin text-[#f59e0b]" />
-            ) : (
-              <Icon icon="logos:google-icon" className="w-5 h-5" />
-            )}
-            Continue with Google
-          </button>
-        </div>
       </div>
     </div>
   )
