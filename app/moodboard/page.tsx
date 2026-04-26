@@ -386,10 +386,8 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
       const y1 = (pdfHeightL - finalH1) / 2;
       pdf.addImage(imgData1, 'JPEG', x1, y1, finalW1, finalH1);
 
-      // Page 2: Table (Portrait)
+      // Page 2+: Table (Portrait, full-page readable + auto pagination)
       if (tableEl && canvasItems.length > 0) {
-        pdf.addPage('a4', 'p'); // Portrait
-
         const restoreBorders2 = fixTailwindBorders(tableEl);
         const restoreOverflow2 = fixOverflowHidden(tableEl);
 
@@ -400,8 +398,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
         const tbWidth = tableEl.scrollWidth;
         const tbHeight = tableEl.scrollHeight + 40; // Add extra 40px buffer to height
 
-        const imgData2 = await domtoimage.toJpeg(tableEl, {
-          quality: 0.98,
+        const imgData2 = await domtoimage.toPng(tableEl, {
           cacheBust: true,
           bgcolor: '#ffffff',
           width: tbWidth * scale,
@@ -427,15 +424,69 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
         restoreBorders2();
         restoreOverflow2();
 
+        const tableImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('Failed to decode table image'));
+          img.src = imgData2;
+        });
+
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = tableImg.width;
+        sourceCanvas.height = tableImg.height;
+        const sourceCtx = sourceCanvas.getContext('2d');
+        if (!sourceCtx) {
+          throw new Error('Failed to create canvas context for table export');
+        }
+        sourceCtx.drawImage(tableImg, 0, 0);
+
+        // Smaller margins so table occupies almost the full A4 area and stays readable.
+        const margin = 6;
+        pdf.addPage('a4', 'p');
         const pdfWidthP = pdf.internal.pageSize.getWidth();
-        const imgProps2 = pdf.getImageProperties(imgData2);
-        const ratio2 = imgProps2.width / imgProps2.height;
+        const pdfHeightP = pdf.internal.pageSize.getHeight();
+        const printableW = pdfWidthP - margin * 2;
+        const printableH = pdfHeightP - margin * 2;
 
-        const margin = 15;
-        const finalW2 = pdfWidthP - (margin * 2);
-        const finalH2 = finalW2 / ratio2;
+        const pxPerMm = tableImg.width / printableW;
+        const pageSliceHeightPx = Math.max(1, Math.floor(printableH * pxPerMm));
 
-        pdf.addImage(imgData2, 'JPEG', margin, margin, finalW2, finalH2);
+        let offsetPx = 0;
+        let pageIndex = 0;
+
+        while (offsetPx < tableImg.height) {
+          if (pageIndex > 0) {
+            pdf.addPage('a4', 'p');
+          }
+
+          const sliceHeightPx = Math.min(pageSliceHeightPx, tableImg.height - offsetPx);
+          const sliceCanvas = document.createElement('canvas');
+          sliceCanvas.width = tableImg.width;
+          sliceCanvas.height = sliceHeightPx;
+          const sliceCtx = sliceCanvas.getContext('2d');
+          if (!sliceCtx) {
+            throw new Error('Failed to create table slice context');
+          }
+
+          sliceCtx.drawImage(
+            sourceCanvas,
+            0,
+            offsetPx,
+            tableImg.width,
+            sliceHeightPx,
+            0,
+            0,
+            tableImg.width,
+            sliceHeightPx
+          );
+
+          const sliceData = sliceCanvas.toDataURL('image/png');
+          const sliceHeightMm = sliceHeightPx / pxPerMm;
+          pdf.addImage(sliceData, 'PNG', margin, margin, printableW, sliceHeightMm);
+
+          offsetPx += sliceHeightPx;
+          pageIndex += 1;
+        }
       }
 
       pdf.save('moodboard-export.pdf');
