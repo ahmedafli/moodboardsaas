@@ -28,6 +28,8 @@ export default function SavedMoodboardPage() {
 
   useEffect(() => {
     const fetchMoodboard = async () => {
+      setIsLoadingMoodboard(true);
+      setError(null);
       try {
         const response = await fetch("/api/openmoodboard");
         if (!response.ok) throw new Error("Failed to fetch moodboards");

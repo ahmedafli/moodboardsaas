@@ -179,6 +179,10 @@ export interface MoodboardPageProps {
   moodboardName?: string;
 }
 
+interface MoodboardNameEntry {
+  moodboardname: string;
+}
+
 export default function MoodboardPage({ initialCanvasItems, moodboardName }: MoodboardPageProps = {}) {
   const supabase = createClient();
   const [products, setProducts] = useState<Product[]>([]);
@@ -188,6 +192,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveName, setSaveName] = useState('');
+  const [saveNameError, setSaveNameError] = useState('');
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>(initialCanvasItems || []);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -503,21 +508,43 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
   const openSaveModal = () => {
     if (canvasItems.length === 0) return;
     setSaveName(moodboardName || '');
+    setSaveNameError('');
     setShowSaveModal(true);
   };
 
   const saveMoodboard = async () => {
     if (isSaving || !saveName.trim()) return;
+    setSaveNameError('');
     if (!currentUserId) {
       alert("Please log in before saving a moodboard.");
       return;
     }
     try {
+      const nextName = saveName.trim();
+      const normalizedNextName = nextName.toLowerCase();
+      const normalizedCurrentName = moodboardName?.trim().toLowerCase();
+
+      const existingMoodboardsResponse = await fetch('/api/openmoodboard');
+      if (existingMoodboardsResponse.ok) {
+        const existingMoodboards: MoodboardNameEntry[] = await existingMoodboardsResponse.json();
+        const hasDuplicateName = existingMoodboards.some((moodboard) => {
+          const normalizedExistingName = moodboard.moodboardname?.trim().toLowerCase();
+          if (!normalizedExistingName) return false;
+          if (normalizedCurrentName && normalizedExistingName === normalizedCurrentName) return false;
+          return normalizedExistingName === normalizedNextName;
+        });
+
+        if (hasDuplicateName) {
+          setSaveNameError('This moodboard name already exists. Please choose another name.');
+          return;
+        }
+      }
+
       setIsSaving(true);
       setSaveSuccess(false);
       const payload = {
         user_id: currentUserId,
-        name: saveName.trim(),
+        name: nextName,
         canvas_items: canvasItems,
       };
       const response = await fetch('/api/savemoodboard', {
@@ -1089,12 +1116,18 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
             <input
               type="text"
               value={saveName}
-              onChange={(e) => setSaveName(e.target.value)}
+              onChange={(e) => {
+                setSaveName(e.target.value);
+                if (saveNameError) setSaveNameError('');
+              }}
               onKeyDown={(e) => { if (e.key === 'Enter' && saveName.trim()) saveMoodboard(); }}
               placeholder="e.g. Living Room Inspiration"
               autoFocus
               className="w-full px-4 py-3 bg-gray-50/80 border border-gray-200 rounded-xl text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent transition-all text-sm"
             />
+            {saveNameError && (
+              <p className="mt-2 text-xs font-medium text-red-500">{saveNameError}</p>
+            )}
 
             <div className="flex items-center gap-3 mt-6">
               <button

@@ -13,6 +13,8 @@ interface MoodboardEntry {
 export default function ProjectsPage() {
   const [moodboards, setMoodboards] = useState<MoodboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deletingName, setDeletingName] = useState<string | null>(null);
+  const [pendingDeleteName, setPendingDeleteName] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -47,9 +49,40 @@ export default function ProjectsPage() {
     router.push(`/moodboard/${encodeURIComponent(name)}`);
   };
 
-  const handleDelete = (name: string) => {
-    // Placeholder — no delete webhook yet
-    alert(`Delete functionality for "${name}" coming soon.`);
+  const openDeleteModal = (name: string) => {
+    if (deletingName) return;
+    setPendingDeleteName(name);
+  };
+
+  const closeDeleteModal = () => {
+    if (deletingName) return;
+    setPendingDeleteName(null);
+  };
+
+  const confirmDelete = async () => {
+    const name = pendingDeleteName;
+    if (!name || deletingName) return;
+
+    try {
+      setDeletingName(name);
+      const response = await fetch("/api/deletemoodboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moodboardname: name }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete moodboard");
+      }
+
+      setMoodboards((prev) => prev.filter((mb) => mb.moodboardname !== name));
+      setPendingDeleteName(null);
+    } catch (error) {
+      console.error("Failed to delete moodboard:", error);
+      alert(`Failed to delete "${name}". Please try again.`);
+    } finally {
+      setDeletingName(null);
+    }
   };
 
   return (
@@ -142,8 +175,9 @@ export default function ProjectsPage() {
                               Open
                             </button>
                             <button
-                              onClick={() => handleDelete(mb.moodboardname)}
-                              className="inline-flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                              onClick={() => openDeleteModal(mb.moodboardname)}
+                              disabled={deletingName === mb.moodboardname}
+                              className="inline-flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                               <Icon icon="lucide:trash-2" className="text-sm" />
                               Delete
@@ -176,6 +210,64 @@ export default function ProjectsPage() {
           )}
         </div>
       </div>
+
+      {pendingDeleteName && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={closeDeleteModal}
+          role="presentation"
+        >
+          <div
+            className="bg-white/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 w-full max-w-md overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-moodboard-title"
+          >
+            <div className="p-6 sm:p-8">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
+                  <Icon icon="lucide:trash-2" className="text-2xl text-red-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 id="delete-moodboard-title" className="text-lg font-bold text-gray-900">
+                    Delete moodboard
+                  </h2>
+                  <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+                    Do you want to delete{" "}
+                    <span className="font-semibold text-gray-800 break-words">
+                      {pendingDeleteName}
+                    </span>
+                    ? This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-8 flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-3 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeDeleteModal}
+                  disabled={deletingName === pendingDeleteName}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-semibold text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  disabled={deletingName === pendingDeleteName}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-semibold text-sm bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/30 transition-colors disabled:opacity-80 disabled:cursor-wait flex items-center justify-center gap-2"
+                >
+                  {deletingName === pendingDeleteName && (
+                    <Icon icon="lucide:loader-2" className="text-lg animate-spin" />
+                  )}
+                  {deletingName === pendingDeleteName ? "Deleting…" : "Yes, delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
