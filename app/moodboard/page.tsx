@@ -4,6 +4,7 @@ import { Icon } from "@iconify/react";
 import { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { createClient } from "@/utils/supabase/client";
+import { useRouter } from "next/navigation";
 
 // Product Type
 interface Product {
@@ -183,8 +184,17 @@ interface MoodboardNameEntry {
   moodboardname: string;
 }
 
+interface PremiumTableRow {
+  ref: string;
+  item: string;
+  price: string;
+  qty: number;
+  image?: string;
+}
+
 export default function MoodboardPage({ initialCanvasItems, moodboardName }: MoodboardPageProps = {}) {
   const supabase = createClient();
+  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -196,6 +206,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>(initialCanvasItems || []);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [packageName, setPackageName] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [exportBustKey, setExportBustKey] = useState<number | null>(null);
 
@@ -505,6 +516,146 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
     }
   };
 
+  const openPremiumPdfEditor = async () => {
+    try {
+      setIsExporting(true);
+
+      // @ts-ignore
+      const domtoimage = (await import("dom-to-image-more")).default;
+
+      setSelectedItemId(null);
+      setExportBustKey(Date.now());
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      const moodboardEl = document.getElementById("moodboard-capture");
+      if (!moodboardEl) return;
+
+      const waitForImages = async (container: HTMLElement | null) => {
+        if (!container) return;
+        const images = Array.from(container.querySelectorAll("img"));
+        await Promise.all(
+          images.map((img) => {
+            if (img.complete) return Promise.resolve();
+            return new Promise((resolve) => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            });
+          })
+        );
+      };
+
+      await waitForImages(moodboardEl);
+
+      const fixTailwindBorders = (root: HTMLElement) => {
+        const els = root.querySelectorAll("*");
+        const restored: { el: HTMLElement; val: string }[] = [];
+        els.forEach((node) => {
+          const el = node as HTMLElement;
+          const style = window.getComputedStyle(el);
+          if (style.borderWidth === "0px" || style.borderWidth === "") {
+            restored.push({ el, val: el.style.borderStyle });
+            el.style.setProperty("border-style", "none", "important");
+          }
+        });
+        return () => restored.forEach(({ el, val }) => (el.style.borderStyle = val));
+      };
+
+      const fixOverflowHidden = (root: HTMLElement) => {
+        const els = root.querySelectorAll("*");
+        const restored: { el: HTMLElement; val: string }[] = [];
+        const allNodes = [root, ...Array.from(els)];
+        allNodes.forEach((node) => {
+          const el = node as HTMLElement;
+          const style = window.getComputedStyle(el);
+          if (
+            style.overflow === "hidden" ||
+            style.overflowY === "hidden" ||
+            style.overflowX === "hidden"
+          ) {
+            restored.push({ el, val: el.style.overflow });
+            el.style.setProperty("overflow", "visible", "important");
+          }
+        });
+        return () => restored.forEach(({ el, val }) => (el.style.overflow = val));
+      };
+
+      const scale = 1.5;
+
+      const restoreBorders1 = fixTailwindBorders(moodboardEl);
+      const restoreOverflow1 = fixOverflowHidden(moodboardEl);
+      const mbWidth = moodboardEl.scrollWidth;
+      const mbHeight = moodboardEl.scrollHeight;
+      const moodboardImg = await domtoimage.toJpeg(moodboardEl, {
+        quality: 0.98,
+        cacheBust: true,
+        bgcolor: "#ffffff",
+        width: mbWidth * scale,
+        height: mbHeight * scale,
+        style: {
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+          width: `${mbWidth}px`,
+          height: `${mbHeight}px`,
+          filter: "none",
+          paddingBottom: "20px",
+        },
+      });
+      restoreBorders1();
+      restoreOverflow1();
+
+      const rowMap = new Map<string, PremiumTableRow>();
+      canvasItems.forEach((item) => {
+        const key = `${item.itemCode}__${item.productName}__${item.price}`;
+        const existing = rowMap.get(key);
+        if (existing) {
+          existing.qty += 1;
+          return;
+        }
+        rowMap.set(key, {
+          ref: item.itemCode || "-",
+          item: item.productName || "Untitled item",
+          price: item.price || "-",
+          qty: 1,
+          image: item.image || "",
+        });
+      });
+      const tableRows = Array.from(rowMap.values());
+
+      const payload = {
+        version: 1,
+        createdAt: Date.now(),
+        moodboardName: moodboardName ?? null,
+        moodboardImg,
+        tableRows,
+      };
+
+      sessionStorage.setItem("premiumPdfExportPayload", JSON.stringify(payload));
+      router.push("/pdf-editor");
+    } catch (error) {
+      console.error("Error preparing premium PDF export:", error);
+      alert(
+        `Failed to prepare premium export. Error: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    } finally {
+      setIsExporting(false);
+      setExportBustKey(null);
+    }
+  };
+
+  const handleExportClick = async () => {
+    const pkg = (packageName || "").toLowerCase().trim();
+    const isPremium = pkg === "premium" || pkg === "pro" || pkg === "premium package";
+
+    if (isPremium) {
+      await openPremiumPdfEditor();
+      return;
+    }
+
+    await exportToPDF();
+  };
+
   const openSaveModal = () => {
     if (canvasItems.length === 0) return;
     setSaveName(moodboardName || '');
@@ -707,6 +858,28 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
   }, [supabase]);
 
   useEffect(() => {
+    if (!currentUserId) return;
+    let cancelled = false;
+
+    const fetchPackage = async () => {
+      const { data } = await supabase
+        .from("user_credits")
+        .select("package")
+        .eq("user_id", currentUserId)
+        .maybeSingle();
+
+      if (!cancelled) {
+        setPackageName(data?.package ?? null);
+      }
+    };
+
+    fetchPackage();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, currentUserId]);
+
+  useEffect(() => {
     const fetchProducts = async () => {
       try {
         const response = await fetch("/api/getallproducts");
@@ -746,7 +919,7 @@ export default function MoodboardPage({ initialCanvasItems, moodboardName }: Moo
               {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
             </button>
             <button
-              onClick={exportToPDF}
+              onClick={handleExportClick}
               disabled={isExporting}
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
