@@ -615,7 +615,23 @@ export default function PdfEditorPage() {
           const imgData = await toDataUrl(row.image);
           if (imgData) {
             try {
-              pdf.addImage(imgData, "PNG", x + 2, y + 2, 14, 14);
+              const pad = 2;
+              const boxW = colW.image - pad * 2;
+              const boxH = rowH - pad * 2;
+
+              // Fit image into the cell box while keeping aspect ratio, then center it.
+              const ip = pdf.getImageProperties(imgData);
+              const ir = ip.width / ip.height;
+              let iw = boxW;
+              let ih = iw / ir;
+              if (ih > boxH) {
+                ih = boxH;
+                iw = ih * ir;
+              }
+
+              const ix = x + pad + (boxW - iw) / 2;
+              const iy = y + pad + (boxH - ih) / 2;
+              pdf.addImage(imgData, "PNG", ix, iy, iw, ih);
             } catch {
               // ignore image decode errors
             }
