@@ -3,8 +3,16 @@ import "./globals.css";
 import LayoutShell from "@/components/LayoutShell";
 
 export const metadata: Metadata = {
-  title: "Collecto",
+  title: "DoubleA interior design studio",
   description: "Gather inspiration in seconds — extract images, colors, and typography from any website.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/doublea.jpg", type: "image/jpeg", sizes: "any" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/doublea.jpg",
+  },
 };
 
 export default function RootLayout({
@@ -15,6 +23,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href="/doublea.jpg" type="image/jpeg" sizes="any" />
+        <link rel="apple-touch-icon" href="/doublea.jpg" />
         <link
           href="https://api.fontshare.com/v2/css?f[]=general-sans@500,600,700&f[]=satoshi@400,500,700&display=swap"
           rel="stylesheet"
